@@ -1,33 +1,102 @@
 :root {
-  --bg: #0f1724;
-  --panel: #0b1220;
+  --bg: #000000;
+  --panel: #0b0b0b;
   --muted: #9aa4b2;
-  --accent: #7c5cff;
-  --accent-2: #00d4ff;
+  --accent: #8b5cf6;
+  --accent-2: #50e3c2;
   --good: #22c55e;
   --danger: #ff6b6b;
-  --surface: linear-gradient(135deg, #071124 0%, #0b1220 100%);
+  --surface: linear-gradient(180deg, #060606 0%, #0b0b0b 100%);
+  --text-primary: #e6eef8;
+  --text-secondary: #e9f0ff;
+  --border: rgba(255, 255, 255, 0.04);
+  --button-bg: rgba(255, 255, 255, 0.02);
+  --friend-item-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+  --friend-item-hover-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+}
+
+[data-theme="light"] {
+  --bg: #ffffff;
+  --panel: #f8f9fa;
+  --muted: #6c757d;
+  --accent: #8b5cf6;
+  --accent-2: #0ea5e9;
+  --good: #22c55e;
+  --danger: #ef4444;
+  --surface: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
+  --text-primary: #1f2937;
+  --text-secondary: #111827;
+  --border: rgba(0, 0, 0, 0.1);
+  --button-bg: rgba(0, 0, 0, 0.05);
+  --friend-item-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.01));
+  --friend-item-hover-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.02));
 }
 
 body {
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial;
   padding: 12px;
-  width: 320px;
-  color: #e6eef8;
+  width: 380px;
+  color: var(--text-primary);
   background: var(--bg);
+  box-sizing: border-box;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
 }
 
 h2 {
   font-size: 15px;
-  margin: 0 0 10px 0;
-  color: var(--accent-2);
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  margin: 0;
+  color: var(--accent);
+  text-shadow: 0 6px 20px rgba(139, 92, 246, 0.12);
+}
+
+.theme-toggle {
+  background: var(--button-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+
+.theme-toggle:hover {
+  background: var(--friend-item-hover-bg);
+  transform: translateY(-1px);
+}
+
+.theme-toggle .sun-icon {
+  display: none;
+}
+
+.theme-toggle .moon-icon {
+  display: block;
+}
+
+[data-theme="light"] .theme-toggle .sun-icon {
+  display: block;
+}
+
+[data-theme="light"] .theme-toggle .moon-icon {
+  display: none;
 }
 
 .controls {
   display: grid;
-  grid-template-columns: 1fr auto;
+  /* input + two buttons */
+  grid-template-columns: 1fr auto auto;
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -35,17 +104,20 @@ h2 {
 input#username {
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
-  color: inherit;
+  border: 1px solid var(--border);
+  background: var(--button-bg);
+  color: var(--text-primary);
   outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 button {
-  background: var(--accent);
+  background: linear-gradient(180deg, var(--accent), #6b3df0);
   color: white;
   border: none;
-  padding: 8px 10px;
+  padding: 8px 12px;
   border-radius: 8px;
   cursor: pointer;
   transition: transform 0.08s ease, box-shadow 0.08s ease;
@@ -58,7 +130,7 @@ button:hover {
 
 button.secondary {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
   color: var(--muted);
 }
 
@@ -78,52 +150,105 @@ ul#friendsList {
 
 .friend-item {
   display: flex;
-  align-items: center;
   gap: 10px;
-  background: rgba(255, 255, 255, 0.02);
-  padding: 8px;
-  border-radius: 10px;
-  align-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.03);
+  min-width: 0; /* allow children to shrink and avoid forcing wrapping */
+  background: var(--friend-item-bg);
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  width: 100%;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.12s ease, background 0.12s ease;
 }
 
 .friend-item .rank {
-  min-width: 34px;
-  height: 34px;
+  min-width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, var(--accent), #5b3bff);
+  background: linear-gradient(180deg, var(--accent), #5b3df0);
   color: white;
-  font-weight: 600;
-  border-radius: 8px;
-  box-shadow: 0 4px 10px rgba(92, 70, 255, 0.12);
+  font-weight: 700;
+  border-radius: 10px;
+  box-shadow: 0 6px 14px rgba(92, 70, 255, 0.14);
 }
 
 .friend-item .name {
   flex: 1;
-  font-weight: 600;
-  color: #e9f0ff;
+  font-weight: 700;
+  color: var(--text-secondary);
+  min-width: 0; /* allow ellipsis */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
 }
 .friend-item .solved {
-  min-width: 70px;
+  min-width: 60px;
   text-align: right;
   color: var(--accent-2);
   font-weight: 700;
+  font-size: 13px;
+}
+
+.avatar-wrap {
+  display: flex;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--friend-item-bg);
+  border: 1px solid var(--border);
+}
+
+.controls button#addFriend,
+.controls button#refresh {
+  align-self: center;
 }
 
 .friend-item button.remove {
   margin-left: 8px;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 6px;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
   background: transparent;
   color: var(--danger);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+}
+
+.friend-item:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(13, 12, 20, 0.6);
+  background: var(--friend-item-hover-bg);
+}
+
+[data-theme="light"] .friend-item:hover {
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
+}
+
+.friend-item .remove:hover {
+  background: var(--button-bg);
+  color: var(--danger);
+}
+
+.friend-item button.remove:focus {
+  outline: 2px solid rgba(139,92,246,0.18);
+  outline-offset: 2px;
 }
 
 /* small screens */
 @media (max-width: 340px) {
   body {
-    width: 300px;
+    width: 320px;
   }
 }

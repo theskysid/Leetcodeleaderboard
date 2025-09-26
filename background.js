@@ -10,6 +10,9 @@ async function fetchSolved(username) {
             count
           }
         }
+        profile {
+          userAvatar
+        }
       }
     }`;
 
@@ -26,19 +29,23 @@ async function fetchSolved(username) {
 
     if (!res.ok) {
       console.error('LeetCode API returned', res.status, res.statusText);
-      return null;
+      return { total: null, avatar: null };
     }
 
     const data = await res.json();
-    if (data && data.data && data.data.matchedUser) {
-      const all = data.data.matchedUser.submitStatsGlobal.acSubmissionNum.find(d => d.difficulty === 'All');
-      return all ? all.count : null;
+    if (data?.data?.matchedUser) {
+      const mu = data.data.matchedUser;
+      const all = mu?.submitStatsGlobal?.acSubmissionNum
+        ? mu.submitStatsGlobal.acSubmissionNum.find(d => d.difficulty === 'All')
+        : null;
+      const avatar = mu?.profile?.userAvatar ?? null;
+      return { total: all ? all.count : null, avatar };
     }
     // no matched user
-    return null;
+    return { total: null, avatar: null };
   } catch (err) {
     console.error('fetchSolved error for', username, err);
-    return null;
+    return { total: null, avatar: null };
   }
 }
 
@@ -51,13 +58,26 @@ async function updateFriends() {
   const result = await storageGet(["friends"]);
   let friends = result.friends || [];
 
+  // helper: apply the fetched result to the friend object
+  const applyResult = (friend, res) => {
+    if (res && typeof res === 'object') {
+      friend.totalSolved = res.total;
+      friend.avatar = res.avatar ?? null;
+      return;
+    }
+    // backward compatibility: if fetchSolved returned a number
+    friend.totalSolved = typeof res === 'number' ? res : null;
+    friend.avatar = friend.avatar ?? null;
+  };
+
   for (let friend of friends) {
     try {
-      const total = await fetchSolved(friend.username);
-      friend.totalSolved = total;
+      const res = await fetchSolved(friend.username);
+      applyResult(friend, res);
     } catch (err) {
       console.error('Error updating', friend.username, err);
       friend.totalSolved = null;
+      friend.avatar = friend.avatar ?? null;
     }
   }
 
