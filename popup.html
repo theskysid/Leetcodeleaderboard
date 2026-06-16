@@ -1,13 +1,17 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="UTF-8" />
     <title>LeetCode Friends</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div class="header">
-      <h2>LeetCode Leaderboard</h2>
-      <button id="themeToggle" class="theme-toggle" title="Toggle theme">
+      <div class="header-main">
+        <h2>LeetCode Leaderboard</h2>
+        <small id="welcomeText" class="welcome-text" hidden></small>
+      </div>
+      <button id="themeToggle" class="theme-toggle is-dark" title="Switch to light mode" aria-label="Switch to light mode">
         <svg class="sun-icon" viewBox="0 0 24 24" width="16" height="16">
           <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2" fill="none"/>
           <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2"/>
@@ -17,17 +21,46 @@
         </svg>
       </button>
     </div>
-    <div class="controls">
-      <input type="text" id="username" placeholder="Enter friend's username" />
-      <button id="addFriend">Add Friend</button>
-      <button id="refresh">Refresh</button>
+
+    <div id="ownerPrompt" class="owner-prompt" hidden>
+      <p class="owner-title">Set your username to highlight yourself</p>
+      <form id="ownerForm" class="owner-form" autocomplete="off">
+        <label class="sr-only" for="ownerUsername">Your username</label>
+        <input
+          type="text"
+          id="ownerUsername"
+          placeholder="your leetcode username"
+          maxlength="30"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button type="submit" id="saveOwner">Save</button>
+      </form>
     </div>
+
+    <form id="addFriendForm" class="controls" autocomplete="off">
+      <label class="sr-only" for="username">Friend username</label>
+      <input
+        type="text"
+        id="username"
+        placeholder="Enter friend's username"
+        maxlength="30"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button type="submit" id="addFriend">Add Friend</button>
+      <button type="button" id="refresh">Refresh</button>
+    </form>
 
     <div class="meta">
       <small id="lastUpdated">Last updated: never</small>
+      <small id="refreshStatus" aria-live="polite">Status: idle</small>
     </div>
 
+    <p id="message" class="message" aria-live="polite" hidden></p>
     <ul id="friendsList"></ul>
-    <script src="popup.js"></script>
+    <p id="emptyState" class="empty-state" hidden>No friends added yet.</p>
+
+    <script type="module" src="popup.js"></script>
   </body>
 </html>
