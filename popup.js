@@ -1,575 +1,468 @@
-import {
-  FRIEND_STATUS,
-  createNewFriendRecord,
-  getInitials,
-  isValidUsername,
-  normalizeUsername,
-  sanitizeFriendsList,
-} from "./shared/friends.mjs";
+// ========== State ==========
+let currentSort = 'solved';
+let currentFriends = [];
+let myUsername = '';
 
-const DEFAULT_THEME = "dark";
-
-const state = {
-  friends: [],
-  lastUpdated: null,
-  refreshState: null,
-  theme: DEFAULT_THEME,
-  myUsername: null,
-  ownerUsernameRequested: true,
-};
-
-const ui = {
-  ownerPrompt: document.getElementById("ownerPrompt"),
-  ownerForm: document.getElementById("ownerForm"),
-  ownerInput: document.getElementById("ownerUsername"),
-  welcomeText: document.getElementById("welcomeText"),
-  addFriendForm: document.getElementById("addFriendForm"),
-  usernameInput: document.getElementById("username"),
-  refreshButton: document.getElementById("refresh"),
-  themeToggle: document.getElementById("themeToggle"),
-  friendsList: document.getElementById("friendsList"),
-  emptyState: document.getElementById("emptyState"),
-  message: document.getElementById("message"),
-  lastUpdated: document.getElementById("lastUpdated"),
-  refreshStatus: document.getElementById("refreshStatus"),
-};
-
-function storageGet(keys) {
-  return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
+// ========== Utilities ==========
+function formatNumber(n) {
+  if (typeof n === 'number') return n.toLocaleString();
+  if (n === null) return '—';
+  return n;
 }
 
-function storageSet(values) {
-  return new Promise((resolve) => chrome.storage.local.set(values, resolve));
+function timeAgo(ts) {
+  if (!ts) return 'never';
+  const diff = Date.now() - ts;
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
-function sendMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      const runtimeError = chrome.runtime.lastError;
-      if (runtimeError) {
-        reject(new Error(runtimeError.message));
-        return;
-      }
-      if (!response?.ok) {
-        reject(new Error(response?.error || "Request failed"));
-        return;
-      }
-      resolve(response);
-    });
-  });
+function makeInitialsAvatar(username) {
+  const el = document.createElement('div');
+  el.className = 'avatar avatar-fallback';
+  el.textContent = (username || '?').trim().charAt(0).toUpperCase();
+  el.setAttribute('aria-hidden', 'true');
+  return el;
 }
 
-function showMessage(text, tone = "info") {
-  if (!text) {
-    ui.message.textContent = "";
-    ui.message.dataset.tone = "";
-    ui.message.hidden = true;
-    return;
-  }
-  ui.message.textContent = text;
-  ui.message.dataset.tone = tone;
-  ui.message.hidden = false;
+// ========== Toast System ==========
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
 }
 
-function handleAsyncError(error, fallbackMessage) {
-  const message = error?.message ? `${fallbackMessage}: ${error.message}` : fallbackMessage;
-  showMessage(message, "error");
+// ========== Stats ==========
+function updateStats(friends) {
+  document.getElementById('friendCount').textContent = friends.length;
 }
 
-function applyTheme(theme) {
-  const resolvedTheme = theme === "light" ? "light" : "dark";
-  state.theme = resolvedTheme;
-  document.documentElement.setAttribute("data-theme", resolvedTheme);
-
-  ui.themeToggle.classList.toggle("is-light", resolvedTheme === "light");
-  ui.themeToggle.classList.toggle("is-dark", resolvedTheme === "dark");
-
-  const nextThemeLabel =
-    resolvedTheme === "light" ? "Switch to dark mode" : "Switch to light mode";
-  ui.themeToggle.setAttribute("aria-label", nextThemeLabel);
-  ui.themeToggle.title = nextThemeLabel;
-}
-
-function parseStoredOwnerUsername(rawValue) {
-  const normalized = normalizeUsername(rawValue);
-  return isValidUsername(normalized) ? normalized : null;
-}
-
-function setOwnerPromptVisible(visible) {
-  ui.ownerPrompt.hidden = !visible;
-  if (!visible) {
-    return;
-  }
-  ui.ownerInput.value = state.myUsername || "";
-  requestAnimationFrame(() => ui.ownerInput.focus());
-}
-
-function updateOwnerUi() {
-  if (state.myUsername) {
-    ui.welcomeText.textContent = `Welcome, ${state.myUsername}`;
-    ui.welcomeText.hidden = false;
+// ========== Empty State ==========
+function updateEmptyState(friends) {
+  const emptyState = document.getElementById('emptyState');
+  const list = document.getElementById('friendsList');
+  if (friends.length === 0) {
+    emptyState.style.display = 'flex';
+    list.style.display = 'none';
   } else {
-    ui.welcomeText.textContent = "";
-    ui.welcomeText.hidden = true;
+    emptyState.style.display = 'none';
+    list.style.display = 'grid';
   }
-  const shouldPrompt = !state.myUsername && state.ownerUsernameRequested;
-  setOwnerPromptVisible(shouldPrompt);
 }
 
-function formatNumber(value) {
-  return typeof value === "number" ? value.toLocaleString() : "N/A";
-}
-
-function asSolvedCount(friend) {
-  return typeof friend.totalSolved === "number" ? friend.totalSolved : null;
-}
-
-function getProgressPercent(value, max) {
-  if (typeof value !== "number" || max <= 0) {
-    return 8;
-  }
-  const ratio = value / max;
-  const clamped = Math.max(0.08, Math.min(1, ratio));
-  return Math.round(clamped * 100);
-}
-
-function formatStatus(friend) {
-  if (friend.status === FRIEND_STATUS.LOADING) {
-    return "Refreshing...";
-  }
-  if (friend.status === FRIEND_STATUS.NOT_FOUND) {
-    return "Username not found";
-  }
-  if (friend.status === FRIEND_STATUS.ERROR) {
-    return friend.errorMessage || "Refresh failed";
-  }
-  if (friend.status === FRIEND_STATUS.OK) {
-    return "Up to date";
-  }
-  return "Not refreshed yet";
-}
-
-function updateLastUpdatedLabel() {
-  if (!state.lastUpdated) {
-    ui.lastUpdated.textContent = "Last updated: never";
-    return;
-  }
-  ui.lastUpdated.textContent = `Last updated: ${new Date(state.lastUpdated).toLocaleString()}`;
-}
-
-function updateRefreshStatusLabel() {
-  const refreshState = state.refreshState;
-  if (!refreshState) {
-    ui.refreshStatus.textContent = "Status: idle";
-    ui.refreshStatus.dataset.tone = "idle";
-    ui.refreshButton.disabled = false;
-    return;
-  }
-
-  if (refreshState.inProgress) {
-    ui.refreshStatus.textContent = `Status: refreshing ${refreshState.targetCount || 0} friend(s)...`;
-    ui.refreshStatus.dataset.tone = "loading";
-    ui.refreshButton.disabled = true;
-    return;
-  }
-
-  ui.refreshButton.disabled = false;
-  const warnings = (refreshState.errorCount || 0) + (refreshState.notFoundCount || 0);
-  if (warnings > 0) {
-    ui.refreshStatus.textContent = `Status: ${refreshState.okCount || 0} ok, ${warnings} warning(s)`;
-    ui.refreshStatus.dataset.tone = "warning";
-    return;
-  }
-  ui.refreshStatus.textContent = "Status: refresh complete";
-  ui.refreshStatus.dataset.tone = "ok";
-}
-
-function makeAvatarElement(friend) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "avatar-wrap";
-
-  if (friend.avatar) {
-    const avatar = document.createElement("img");
-    avatar.className = "avatar";
-    avatar.src = friend.avatar;
-    avatar.alt = `${friend.username} avatar`;
-    avatar.addEventListener("error", () => {
-      wrapper.innerHTML = "";
-      const fallback = document.createElement("span");
-      fallback.className = "avatar avatar-fallback";
-      fallback.textContent = getInitials(friend.username);
-      wrapper.appendChild(fallback);
+// ========== Sort ==========
+function sortFriends(friends, sortBy) {
+  const copy = [...friends];
+  if (sortBy === 'name') {
+    copy.sort((a, b) => a.username.localeCompare(b.username));
+  } else if (sortBy === 'delta') {
+    copy.sort((a, b) => {
+      const da = typeof a.dailyDelta === 'number' ? a.dailyDelta : -Infinity;
+      const db = typeof b.dailyDelta === 'number' ? b.dailyDelta : -Infinity;
+      if (da !== db) return db - da;
+      const sa = typeof a.totalSolved === 'number' ? a.totalSolved : -1;
+      const sb = typeof b.totalSolved === 'number' ? b.totalSolved : -1;
+      return sb - sa;
     });
-    wrapper.appendChild(avatar);
-    return wrapper;
+  } else {
+    copy.sort((a, b) => {
+      const na = a.totalSolved === null ? -1 : a.totalSolved;
+      const nb = b.totalSolved === null ? -1 : b.totalSolved;
+      if (na === nb) return a.username.localeCompare(b.username);
+      return nb - na;
+    });
   }
-
-  const fallback = document.createElement("span");
-  fallback.className = "avatar avatar-fallback";
-  fallback.textContent = getInitials(friend.username);
-  wrapper.appendChild(fallback);
-  return wrapper;
+  return copy;
 }
 
-function openProfile(username) {
-  const profileUrl = `https://leetcode.com/${username}/`;
-  if (chrome?.tabs?.create) {
-    chrome.tabs.create({ url: profileUrl });
-    return;
-  }
-  window.open(profileUrl, "_blank");
-}
+// ========== Render ==========
+function renderFriends(friends) {
+  currentFriends = friends;
+  const sorted = sortFriends(friends, currentSort);
 
-function sortBySolvedThenName(friends) {
-  return [...friends].sort((a, b) => {
-    const solvedA = typeof a.totalSolved === "number" ? a.totalSolved : -1;
-    const solvedB = typeof b.totalSolved === "number" ? b.totalSolved : -1;
-    if (solvedA !== solvedB) {
-      return solvedB - solvedA;
-    }
-    return a.username.localeCompare(b.username);
-  });
-}
+  updateStats(friends);
+  updateEmptyState(friends);
 
-function renderFriends() {
-  const sorted = sortBySolvedThenName(sanitizeFriendsList(state.friends));
-  ui.friendsList.innerHTML = "";
+  if (friends.length === 0) return;
 
-  if (!sorted.length) {
-    ui.emptyState.hidden = false;
-    ui.emptyState.textContent = "No friends added yet.";
-    return;
-  }
+  const list = document.getElementById('friendsList');
+  list.innerHTML = '';
 
-  ui.emptyState.hidden = true;
-  const solvedValues = sorted
-    .map((friend) => asSolvedCount(friend))
-    .filter((count) => typeof count === "number");
-  const maxSolved = solvedValues.length ? Math.max(...solvedValues) : 0;
+  sorted.forEach((friend, idx) => {
+    const li = document.createElement('li');
+    li.className = 'friend-item glass';
+    li.style.setProperty('--i', idx);
 
-  sorted.forEach((friend, index) => {
-    const item = document.createElement("li");
-    item.className = "friend-item";
-    const isMe = Boolean(state.myUsername && friend.username === state.myUsername);
-    if (index === 0) {
-      item.classList.add("champion");
-    }
-    if (isMe) {
-      item.classList.add("is-me");
-    }
-    item.dataset.status = friend.status;
-    item.tabIndex = 0;
-    item.setAttribute("role", "link");
-    item.setAttribute(
-      "aria-label",
-      isMe
-        ? `Open your profile (${friend.username})`
-        : `Open ${friend.username} profile`,
-    );
+    const isMe = myUsername && friend.username.toLowerCase() === myUsername.toLowerCase();
+    if (isMe) li.classList.add('is-you');
 
-    const rank = document.createElement("span");
-    rank.className = "rank";
-    rank.textContent = `#${index + 1}`;
+    // Rank badge
+    const rank = document.createElement('span');
+    rank.className = 'rank';
+    if (idx === 0) rank.classList.add('rank-gold');
+    else if (idx === 1) rank.classList.add('rank-silver');
+    else if (idx === 2) rank.classList.add('rank-bronze');
 
-    const details = document.createElement("div");
-    details.className = "friend-details";
+    if (idx === 0) rank.textContent = '🥇';
+    else if (idx === 1) rank.textContent = '🥈';
+    else if (idx === 2) rank.textContent = '🥉';
+    else rank.textContent = `#${idx + 1}`;
 
-    const main = document.createElement("div");
-    main.className = "friend-main";
-
-    const name = document.createElement("span");
-    name.className = "name";
-    name.textContent = friend.username;
-
-    const nameWrap = document.createElement("div");
-    nameWrap.className = "name-wrap";
-    nameWrap.appendChild(name);
-
-    if (isMe) {
-      const youTag = document.createElement("span");
-      youTag.className = "you-tag";
-      youTag.textContent = "YOU";
-      nameWrap.appendChild(youTag);
-    }
-
-    const metricMeta = document.createElement("div");
-    metricMeta.className = "metric-meta";
-
-    const metricLabel = document.createElement("span");
-    metricLabel.className = "metric-label";
-    metricLabel.textContent = "PROBLEMS SOLVED";
-
-    const metricValue = document.createElement("span");
-    metricValue.className = "metric-value";
-    metricValue.textContent = formatNumber(friend.totalSolved);
-
-    metricMeta.appendChild(metricLabel);
-    metricMeta.appendChild(metricValue);
-
-    const header = document.createElement("div");
-    header.className = "friend-head";
-    header.appendChild(nameWrap);
-    header.appendChild(metricMeta);
-
-    const solvedCount = asSolvedCount(friend);
-    const progressPercent = getProgressPercent(solvedCount, maxSolved);
-
-    const track = document.createElement("div");
-    track.className = "metric-track";
-
-    const marker = document.createElement("span");
-    marker.className = "metric-marker";
-    marker.style.left = `calc(${progressPercent}% - 7px)`;
-    track.appendChild(marker);
-
-    main.appendChild(header);
-    main.appendChild(track);
-
-    if (friend.status !== FRIEND_STATUS.OK) {
-      const status = document.createElement("span");
-      status.className = "friend-status";
-      status.textContent = formatStatus(friend);
-      main.appendChild(status);
-    }
-
-    const removeButton = document.createElement("button");
-    removeButton.type = "button";
-    removeButton.className = "remove";
-    removeButton.title = "Delete friend";
-    removeButton.setAttribute("aria-label", `Delete ${friend.username}`);
-    removeButton.innerHTML =
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M3 6h18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8 6V4h8v2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 6l1 14h12l1-14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
-    removeButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      removeFriend(friend.username).catch((error) => {
-        handleAsyncError(error, "Unable to remove friend");
+    // Avatar
+    const avatarWrap = document.createElement('div');
+    avatarWrap.className = 'avatar-wrap';
+    if (friend.avatar) {
+      const avatarImg = document.createElement('img');
+      avatarImg.className = 'avatar';
+      avatarImg.src = friend.avatar;
+      avatarImg.alt = friend.username + ' avatar';
+      avatarImg.loading = 'lazy';
+      avatarImg.addEventListener('error', () => {
+        avatarImg.replaceWith(makeInitialsAvatar(friend.username));
       });
+      avatarWrap.appendChild(avatarImg);
+    } else {
+      avatarWrap.appendChild(makeInitialsAvatar(friend.username));
+    }
+
+    // Info column
+    const info = document.createElement('div');
+    info.className = 'info';
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'name-row';
+
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = friend.username;
+    nameRow.appendChild(name);
+
+    if (isMe) {
+      const youBadge = document.createElement('span');
+      youBadge.className = 'you-badge';
+      youBadge.textContent = 'you';
+      nameRow.appendChild(youBadge);
+    }
+
+    info.appendChild(nameRow);
+
+    const dailyDelta = typeof friend.dailyDelta === 'number' ? friend.dailyDelta : 0;
+    if (dailyDelta !== 0) {
+      const deltaBadge = document.createElement('span');
+      deltaBadge.className = `delta-badge ${dailyDelta > 0 ? 'positive' : 'negative'}`;
+      deltaBadge.textContent = dailyDelta > 0 ? `+${dailyDelta} today` : `${dailyDelta} today`;
+      info.appendChild(deltaBadge);
+    }
+
+    // Solved count
+    const solvedWrap = document.createElement('div');
+    solvedWrap.className = 'solved-wrap';
+    const solved = document.createElement('span');
+    solved.className = 'solved';
+    solved.textContent = formatNumber(friend.totalSolved);
+    const solvedLabel = document.createElement('span');
+    solvedLabel.className = 'solved-label';
+    solvedLabel.textContent = 'solved';
+    solvedWrap.appendChild(solved);
+    solvedWrap.appendChild(solvedLabel);
+
+    // Remove button (not for self)
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remove';
+    removeBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+        <path d="M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>`;
+    removeBtn.title = 'Remove friend';
+    removeBtn.setAttribute('aria-label', `Remove ${friend.username}`);
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeFriend(friend.username);
+      showToast(`Removed ${friend.username}`, 'error');
     });
 
-    details.appendChild(makeAvatarElement(friend));
-    details.appendChild(main);
+    li.appendChild(rank);
+    li.appendChild(avatarWrap);
+    li.appendChild(info);
+    li.appendChild(solvedWrap);
+    if (!isMe) li.appendChild(removeBtn);
+    list.appendChild(li);
 
-    item.appendChild(rank);
-    item.appendChild(details);
-    item.appendChild(removeButton);
-
-    item.addEventListener("click", () => openProfile(friend.username));
-    item.addEventListener("keydown", (event) => {
-      if (event.target !== item) {
-        return;
-      }
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        openProfile(friend.username);
+    // Open LeetCode profile
+    li.addEventListener('click', () => {
+      const url = `https://leetcode.com/${friend.username}/`;
+      if (chrome?.tabs?.create) {
+        chrome.tabs.create({ url });
+      } else {
+        window.open(url, '_blank');
       }
     });
-
-    ui.friendsList.appendChild(item);
   });
 }
 
-async function refreshNow() {
-  try {
-    showMessage("Refreshing leaderboard...", "info");
-    const response = await sendMessage({ type: "updateNow" });
-    const warningCount =
-      (response?.result?.errorCount || 0) + (response?.result?.notFoundCount || 0);
-    if (warningCount > 0) {
-      showMessage(`Refresh finished with ${warningCount} warning(s)`, "warning");
+// ========== Timestamps ==========
+function setLastUpdated(ts) {
+  const el = document.getElementById('lastUpdated');
+  if (!ts) el.textContent = 'Updated: never';
+  else el.textContent = `Updated ${timeAgo(ts)}`;
+}
+
+// ========== Actions ==========
+function refreshNow() {
+  const btn = document.getElementById('refresh');
+  btn.classList.add('refreshing');
+  chrome.runtime.sendMessage({ type: 'updateNow' }, () => {
+    setTimeout(() => btn.classList.remove('refreshing'), 800);
+  });
+}
+
+function removeFriend(username) {
+  chrome.storage.local.get(['friends'], (result) => {
+    let friends = result.friends || [];
+    friends = friends.filter(f => f.username !== username);
+    chrome.storage.local.set({ friends });
+  });
+}
+
+function addFriend(username) {
+  if (!username) return;
+  chrome.storage.local.get(['friends'], (result) => {
+    let friends = result.friends || [];
+    if (friends.some(f => f.username === username)) {
+      showToast(`${username} already added`, 'info');
       return;
     }
-    showMessage("Refresh completed successfully", "ok");
-  } catch (error) {
-    showMessage(`Refresh failed: ${error.message}`, "error");
-  }
+    friends.push({ username, totalSolved: null });
+    chrome.storage.local.set({ friends }, () => {
+      showToast(`Added ${username}`, 'success');
+      refreshNow();
+    });
+  });
 }
 
-async function refreshUsers(usernames) {
-  if (!Array.isArray(usernames) || !usernames.length) {
-    return;
-  }
-  try {
-    await sendMessage({ type: "updateUsers", usernames });
-  } catch (error) {
-    showMessage(`Background refresh failed: ${error.message}`, "error");
-  }
+// ========== Gist Sync ==========
+async function saveToGist(token, gistId, friends) {
+  const payload = {
+    description: 'LeetCode Leaderboard — Friend List Backup',
+    files: {
+      'leetcode-friends.json': {
+        content: JSON.stringify({ friends, exportedAt: Date.now() }, null, 2)
+      }
+    }
+  };
+
+  const url = gistId
+    ? `https://api.github.com/gists/${gistId}`
+    : 'https://api.github.com/gists';
+  const method = gistId ? 'PATCH' : 'POST';
+
+  if (!gistId) payload.public = false;
+
+  const res = await fetch(url, {
+    method,
+    headers: {
+      'Authorization': `token ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+  const data = await res.json();
+  return data.id;
 }
 
-async function removeFriend(username) {
-  const existing = sanitizeFriendsList(state.friends);
-  const updated = existing.filter((friend) => friend.username !== username);
-  await storageSet({ friends: updated });
-  showMessage(`Removed ${username}`, "info");
+async function loadFromGist(token, gistId) {
+  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+    headers: { 'Authorization': `token ${token}` },
+  });
+  if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+  const data = await res.json();
+  const file = data.files['leetcode-friends.json'];
+  if (!file) throw new Error('Gist does not contain leetcode-friends.json');
+  return JSON.parse(file.content);
 }
 
-async function addFriendFromInput() {
-  const rawInput = ui.usernameInput.value;
-  const username = normalizeUsername(rawInput);
+// ========== Add Friend Dialog ==========
+const addDialog = document.getElementById('addFriendDialog');
+const addDialogInput = document.getElementById('username');
 
-  if (!isValidUsername(username)) {
-    showMessage(
-      "Invalid username. Use 1-30 chars: letters, numbers, _ or -.",
-      "error",
-    );
-    return;
+document.getElementById('addFriendOpen').addEventListener('click', () => {
+  addDialog.showModal();
+  setTimeout(() => addDialogInput.focus(), 100);
+});
+
+document.getElementById('dialogClose').addEventListener('click', () => {
+  addDialog.close();
+});
+
+addDialog.addEventListener('click', (e) => {
+  if (e.target === addDialog) addDialog.close();
+});
+
+document.getElementById('addFriend').addEventListener('click', () => {
+  const username = addDialogInput.value.trim().toLowerCase();
+  if (!username) return;
+  addFriend(username);
+  addDialogInput.value = '';
+  addDialog.close();
+});
+
+addDialogInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    document.getElementById('addFriend').click();
   }
+});
 
-  const friends = sanitizeFriendsList(state.friends);
-  if (friends.some((friend) => friend.username === username)) {
-    showMessage(`${username} is already on the leaderboard`, "warning");
-    return;
-  }
+// ========== Setup Dialog ==========
+const setupDialog = document.getElementById('setupDialog');
 
-  const newFriend = createNewFriendRecord(username);
-  if (!newFriend) {
-    showMessage("Could not add that username", "error");
-    return;
-  }
-
-  const updated = sanitizeFriendsList([...friends, newFriend]);
-  await storageSet({ friends: updated });
-  ui.usernameInput.value = "";
-  ui.usernameInput.focus();
-  showMessage(`Added ${username}. Fetching latest data...`, "ok");
-  refreshUsers([username]);
+function showSetupIfNeeded() {
+  chrome.storage.local.get(['myUsername', 'setupComplete'], (result) => {
+    if (!result.setupComplete && !result.myUsername) {
+      setupDialog.showModal();
+      setTimeout(() => document.getElementById('myUsernameInput').focus(), 100);
+    }
+    if (result.myUsername) {
+      myUsername = result.myUsername;
+    }
+  });
 }
 
-async function saveOwnerUsername() {
-  const username = normalizeUsername(ui.ownerInput.value);
-  if (!isValidUsername(username)) {
-    showMessage(
-      "Invalid username. Use 1-30 chars: letters, numbers, _ or -.",
-      "error",
-    );
-    ui.ownerInput.focus();
+document.getElementById('setupSave').addEventListener('click', async () => {
+  const usernameVal = document.getElementById('myUsernameInput').value.trim().toLowerCase();
+  const tokenVal = document.getElementById('gistTokenInput').value.trim();
+  const gistIdVal = document.getElementById('gistIdInput').value.trim();
+
+  if (!usernameVal) {
+    showToast('Please enter your username', 'error');
     return;
   }
 
-  const friends = sanitizeFriendsList(state.friends);
-  let updatedFriends = friends;
-  let ownerAdded = false;
-  if (!friends.some((friend) => friend.username === username)) {
-    const newFriend = createNewFriendRecord(username);
-    if (newFriend) {
-      updatedFriends = sanitizeFriendsList([...friends, newFriend]);
-      ownerAdded = true;
+  myUsername = usernameVal;
+  const saveData = { myUsername: usernameVal, setupComplete: true };
+
+  // If Gist token provided, save it and try to sync
+  if (tokenVal) {
+    saveData.gistToken = tokenVal;
+    try {
+      if (gistIdVal) {
+        // Load existing gist data
+        const gistData = await loadFromGist(tokenVal, gistIdVal);
+        saveData.gistId = gistIdVal;
+        if (gistData.friends && gistData.friends.length > 0) {
+          saveData.friends = gistData.friends;
+          showToast(`Loaded ${gistData.friends.length} friends from Gist`, 'success');
+        }
+      } else {
+        // Create a new gist
+        const friends = await new Promise(resolve => {
+          chrome.storage.local.get(['friends'], r => resolve(r.friends || []));
+        });
+        const newGistId = await saveToGist(tokenVal, null, friends);
+        saveData.gistId = newGistId;
+        showToast('Created backup Gist', 'success');
+      }
+    } catch (err) {
+      showToast(`Gist error: ${err.message}`, 'error');
     }
   }
 
-  await storageSet({
-    myUsername: username,
-    ownerUsernameRequested: false,
-    friends: updatedFriends,
+  // Also add self to friends list if not already there
+  chrome.storage.local.get(['friends'], (result) => {
+    let friends = saveData.friends || result.friends || [];
+    if (!friends.some(f => f.username === usernameVal)) {
+      friends.push({ username: usernameVal, totalSolved: null });
+    }
+    saveData.friends = friends;
+    chrome.storage.local.set(saveData, () => {
+      setupDialog.close();
+      renderFriends(saveData.friends);
+      refreshNow();
+    });
   });
+});
 
-  state.myUsername = username;
-  state.ownerUsernameRequested = false;
-  updateOwnerUi();
+document.getElementById('setupSkip').addEventListener('click', () => {
+  chrome.storage.local.set({ setupComplete: true });
+  setupDialog.close();
+});
 
-  if (ownerAdded) {
-    showMessage(`Saved your username and added ${username} to leaderboard`, "ok");
-    await refreshUsers([username]);
-    return;
-  }
+// ========== Refresh Button ==========
+document.getElementById('refresh').addEventListener('click', () => {
+  refreshNow();
+});
 
-  showMessage("Saved your username", "ok");
+// ========== Sort Tabs ==========
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    tab.classList.add('active');
+    tab.setAttribute('aria-selected', 'true');
+    currentSort = tab.dataset.sort;
+    renderFriends(currentFriends);
+  });
+});
+
+// ========== Theme ==========
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
 }
 
-async function handleInitialLoad() {
-  const result = await storageGet([
-    "friends",
-    "lastUpdated",
-    "refreshState",
-    "theme",
-    "myUsername",
-    "ownerUsernameRequested",
-  ]);
-
-  state.friends = sanitizeFriendsList(result.friends || []);
-  state.lastUpdated =
-    typeof result.lastUpdated === "number" ? result.lastUpdated : null;
-  state.refreshState = result.refreshState || null;
-  state.myUsername = parseStoredOwnerUsername(result.myUsername);
-  state.ownerUsernameRequested =
-    typeof result.ownerUsernameRequested === "boolean"
-      ? result.ownerUsernameRequested
-      : true;
-
-  applyTheme(result.theme || DEFAULT_THEME);
-  updateOwnerUi();
-  updateLastUpdatedLabel();
-  updateRefreshStatusLabel();
-  renderFriends();
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  chrome.storage.local.set({ theme: next });
 }
 
-ui.ownerForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  saveOwnerUsername().catch((error) => {
-    handleAsyncError(error, "Unable to save your username");
-  });
+document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+
+// ========== Initial Load ==========
+chrome.storage.local.get(['friends', 'lastUpdated', 'theme', 'myUsername'], (result) => {
+  applyTheme(result.theme || 'dark');
+  myUsername = result.myUsername || '';
+  renderFriends(result.friends || []);
+  setLastUpdated(result.lastUpdated || null);
 });
 
-ui.addFriendForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  addFriendFromInput().catch((error) => {
-    handleAsyncError(error, "Unable to add friend");
-  });
-});
+// Show setup dialog if needed
+showSetupIfNeeded();
 
-ui.refreshButton.addEventListener("click", () => {
-  refreshNow().catch((error) => {
-    handleAsyncError(error, "Refresh failed");
-  });
-});
-
-ui.themeToggle.addEventListener("click", () => {
-  const nextTheme = state.theme === "dark" ? "light" : "dark";
-  applyTheme(nextTheme);
-  storageSet({ theme: nextTheme });
-});
-
+// ========== Storage Changes ==========
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local") {
-    return;
-  }
-
+  if (area !== 'local') return;
   if (changes.friends) {
-    state.friends = sanitizeFriendsList(changes.friends.newValue || []);
-    renderFriends();
-  }
+    renderFriends(changes.friends.newValue || []);
 
+    // Auto-sync to Gist on friend list change
+    chrome.storage.local.get(['gistToken', 'gistId'], (result) => {
+      if (result.gistToken && result.gistId) {
+        saveToGist(result.gistToken, result.gistId, changes.friends.newValue || []).catch(() => {});
+      }
+    });
+  }
   if (changes.lastUpdated) {
-    state.lastUpdated =
-      typeof changes.lastUpdated.newValue === "number"
-        ? changes.lastUpdated.newValue
-        : null;
-    updateLastUpdatedLabel();
+    setLastUpdated(changes.lastUpdated.newValue);
   }
-
-  if (changes.refreshState) {
-    state.refreshState = changes.refreshState.newValue || null;
-    updateRefreshStatusLabel();
-  }
-
   if (changes.theme) {
-    applyTheme(changes.theme.newValue || DEFAULT_THEME);
+    applyTheme(changes.theme.newValue || 'dark');
   }
-
   if (changes.myUsername) {
-    state.myUsername = parseStoredOwnerUsername(changes.myUsername.newValue);
-    updateOwnerUi();
-    renderFriends();
+    myUsername = changes.myUsername.newValue || '';
+    renderFriends(currentFriends);
   }
-
-  if (changes.ownerUsernameRequested) {
-    state.ownerUsernameRequested =
-      typeof changes.ownerUsernameRequested.newValue === "boolean"
-        ? changes.ownerUsernameRequested.newValue
-        : true;
-    updateOwnerUi();
-  }
-});
-
-handleInitialLoad().catch((error) => {
-  showMessage(`Failed to load popup: ${error.message}`, "error");
 });

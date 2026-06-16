@@ -189,6 +189,21 @@ function applyFetchResult(friend, result, checkedAt) {
     friend.avatar = result.avatar || friend.avatar || null;
     friend.lastSuccessAt = checkedAt;
     friend.errorMessage = null;
+
+    // Daily tracking: reset baseline if date changed
+    const todayStr = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+    if (friend.dailyBaselineDate !== todayStr) {
+      // New day — snapshot current total as baseline
+      friend.dailyBaseline = previousTotal !== null ? previousTotal : friend.totalSolved;
+      friend.dailyBaselineDate = todayStr;
+    }
+    // Calculate daily delta
+    if (typeof friend.totalSolved === "number" && typeof friend.dailyBaseline === "number") {
+      friend.dailyDelta = friend.totalSolved - friend.dailyBaseline;
+    } else {
+      friend.dailyDelta = null;
+    }
+
     return;
   }
 
@@ -196,6 +211,7 @@ function applyFetchResult(friend, result, checkedAt) {
     friend.previousTotalSolved = previousTotal;
     friend.totalSolved = null;
     friend.delta = null;
+    friend.dailyDelta = null;
     return;
   }
 

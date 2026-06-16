@@ -1,66 +1,125 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <title>LeetCode Friends</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div class="header">
-      <div class="header-main">
-        <h2>LeetCode Leaderboard</h2>
-        <small id="welcomeText" class="welcome-text" hidden></small>
+    <div class="liquid-bg" aria-hidden="true">
+      <span class="orb orb-a"></span>
+      <span class="orb orb-b"></span>
+      <span class="orb orb-c"></span>
+    </div>
+
+    <div class="app">
+      <!-- Header -->
+      <div class="glass header">
+        <div class="header-left">
+          <div class="header-icon" aria-hidden="true">⚡</div>
+          <h1>LeetCode Leaderboard</h1>
+        </div>
+        <div class="header-actions">
+          <button id="addFriendOpen" class="btn btn-icon" title="Add friend">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <line x1="19" y1="8" x2="19" y2="14"/>
+              <line x1="22" y1="11" x2="16" y2="11"/>
+            </svg>
+          </button>
+          <button id="refresh" class="btn btn-icon" title="Refresh all">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </button>
+          <button id="themeToggle" class="btn btn-icon" title="Toggle theme">
+            <svg class="sun-icon" viewBox="0 0 24 24" width="16" height="16">
+              <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2" fill="none"/>
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2"/>
+            </svg>
+            <svg class="moon-icon" viewBox="0 0 24 24" width="16" height="16">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" stroke-width="2" fill="none"/>
+            </svg>
+          </button>
+        </div>
       </div>
-      <button id="themeToggle" class="theme-toggle is-dark" title="Switch to light mode" aria-label="Switch to light mode">
-        <svg class="sun-icon" viewBox="0 0 24 24" width="16" height="16">
-          <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2" fill="none"/>
-          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2"/>
-        </svg>
-        <svg class="moon-icon" viewBox="0 0 24 24" width="16" height="16">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" stroke-width="2" fill="none"/>
-        </svg>
-      </button>
+
+      <!-- Sort Tabs -->
+      <div class="tab-bar" role="tablist">
+        <button class="tab active" data-sort="solved" role="tab" aria-selected="true">🏆 Solved</button>
+        <button class="tab" data-sort="delta" role="tab" aria-selected="false">📈 Today</button>
+      </div>
+
+      <!-- Stats + Meta Row -->
+      <div class="info-row">
+        <div class="stats-strip">
+          <div class="stat-chip">
+            <span>👥</span>
+            <span class="stat-value" id="friendCount">0</span>
+            <span>friends</span>
+          </div>
+        </div>
+        <small id="lastUpdated" class="meta-text">Updated: never</small>
+      </div>
+
+      <!-- Friend List -->
+      <ul id="friendsList"></ul>
+
+      <!-- Empty State -->
+      <div id="emptyState" class="empty-state" style="display:none;">
+        <div class="empty-icon">🏗️</div>
+        <h3>No friends yet</h3>
+        <p>Click the <strong>+</strong> button above to<br/>start tracking your friends!</p>
+      </div>
+
+      <!-- Toast Container -->
+      <div id="toastContainer" class="toast-container"></div>
+
+      <div class="footer">
+        <span>vibecoded by <strong>theskysid</strong></span>
+      </div>
     </div>
 
-    <div id="ownerPrompt" class="owner-prompt" hidden>
-      <p class="owner-title">Set your username to highlight yourself</p>
-      <form id="ownerForm" class="owner-form" autocomplete="off">
-        <label class="sr-only" for="ownerUsername">Your username</label>
-        <input
-          type="text"
-          id="ownerUsername"
-          placeholder="your leetcode username"
-          maxlength="30"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <button type="submit" id="saveOwner">Save</button>
-      </form>
-    </div>
+    <!-- Add Friend Dialog -->
+    <dialog id="addFriendDialog" class="dialog">
+      <div class="dialog-content glass">
+        <div class="dialog-header">
+          <h2>Add Friend</h2>
+          <button id="dialogClose" class="btn btn-icon dialog-close" title="Close">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M18 6L6 18"/><path d="M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="dialog-body">
+          <input type="text" id="username" placeholder="LeetCode username..." autocomplete="off" spellcheck="false" />
+          <button id="addFriend" class="btn btn-accent btn-full">Add to Leaderboard</button>
+        </div>
+      </div>
+    </dialog>
 
-    <form id="addFriendForm" class="controls" autocomplete="off">
-      <label class="sr-only" for="username">Friend username</label>
-      <input
-        type="text"
-        id="username"
-        placeholder="Enter friend's username"
-        maxlength="30"
-        autocomplete="off"
-        spellcheck="false"
-      />
-      <button type="submit" id="addFriend">Add Friend</button>
-      <button type="button" id="refresh">Refresh</button>
-    </form>
+    <!-- Setup Dialog (first-time username + optional Gist) -->
+    <dialog id="setupDialog" class="dialog">
+      <div class="dialog-content glass">
+        <div class="dialog-header">
+          <h2>👋 Welcome!</h2>
+        </div>
+        <div class="dialog-body">
+          <p class="dialog-desc">Enter your LeetCode username to highlight your row on the leaderboard.</p>
+          <input type="text" id="myUsernameInput" placeholder="Your LeetCode username..." autocomplete="off" spellcheck="false" />
+          <div class="dialog-divider"></div>
+          <p class="dialog-desc">Optional: paste a GitHub Gist token to sync your friends list across devices.</p>
+          <input type="text" id="gistTokenInput" placeholder="GitHub personal access token (optional)" autocomplete="off" spellcheck="false" />
+          <input type="text" id="gistIdInput" placeholder="Existing Gist ID (leave blank to create new)" autocomplete="off" spellcheck="false" />
+          <button id="setupSave" class="btn btn-accent btn-full">Save &amp; Continue</button>
+          <button id="setupSkip" class="btn btn-ghost btn-full">Skip for now</button>
+        </div>
+      </div>
+    </dialog>
 
-    <div class="meta">
-      <small id="lastUpdated">Last updated: never</small>
-      <small id="refreshStatus" aria-live="polite">Status: idle</small>
-    </div>
-
-    <p id="message" class="message" aria-live="polite" hidden></p>
-    <ul id="friendsList"></ul>
-    <p id="emptyState" class="empty-state" hidden>No friends added yet.</p>
-
-    <script type="module" src="popup.js"></script>
+    <script src="popup.js"></script>
   </body>
 </html>
