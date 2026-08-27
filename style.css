@@ -470,6 +470,7 @@ ul#friendsList::-webkit-scrollbar-thumb {
 }
 .delta-badge.positive { color: var(--success); background: var(--success-glow); }
 .delta-badge.negative { color: var(--danger); background: var(--danger-glow); }
+.delta-badge.neutral { color: var(--text-muted); background: var(--glass-bg); }
 
 /* ========== Solved Count ========== */
 .solved-wrap {
@@ -484,6 +485,7 @@ ul#friendsList::-webkit-scrollbar-thumb {
   font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
+.solved-wrap.is-zero .solved { color: var(--text-muted); }
 .solved-label {
   color: var(--text-muted);
   font-size: 9px;

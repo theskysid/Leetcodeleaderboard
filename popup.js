@@ -1,7 +1,10 @@
+import { localDayString, solvedToday } from './shared/friends.mjs';
+
 // ========== State ==========
 let currentSort = 'solved';
 let currentFriends = [];
 let myUsername = '';
+const STALE_MS = 5 * 60 * 1000;
 
 // ========== Utilities ==========
 function formatNumber(n) {
@@ -41,9 +44,19 @@ function showToast(message, type = 'info') {
   setTimeout(() => toast.remove(), 3000);
 }
 
+// ========== Today ==========
+// Guard against a stale baseline: if the last refresh was on an earlier day,
+// friend.dailyDelta still holds yesterday's number, so treat today as 0.
+function todayCount(friend) {
+  return solvedToday(friend, localDayString());
+}
+
 // ========== Stats ==========
 function updateStats(friends) {
   document.getElementById('friendCount').textContent = friends.length;
+  const counts = friends.map(todayCount);
+  document.getElementById('todayActive').textContent = counts.filter(n => n > 0).length;
+  document.getElementById('todayTotal').textContent = counts.reduce((a, b) => a + b, 0);
 }
 
 // ========== Empty State ==========
@@ -66,8 +79,8 @@ function sortFriends(friends, sortBy) {
     copy.sort((a, b) => a.username.localeCompare(b.username));
   } else if (sortBy === 'delta') {
     copy.sort((a, b) => {
-      const da = typeof a.dailyDelta === 'number' ? a.dailyDelta : -Infinity;
-      const db = typeof b.dailyDelta === 'number' ? b.dailyDelta : -Infinity;
+      const da = todayCount(a);
+      const db = todayCount(b);
       if (da !== db) return db - da;
       const sa = typeof a.totalSolved === 'number' ? a.totalSolved : -1;
       const sb = typeof b.totalSolved === 'number' ? b.totalSolved : -1;
@@ -96,6 +109,7 @@ function renderFriends(friends) {
 
   const list = document.getElementById('friendsList');
   list.innerHTML = '';
+  const showToday = currentSort === 'delta';
 
   sorted.forEach((friend, idx) => {
     const li = document.createElement('li');
@@ -155,23 +169,32 @@ function renderFriends(friends) {
 
     info.appendChild(nameRow);
 
-    const dailyDelta = typeof friend.dailyDelta === 'number' ? friend.dailyDelta : 0;
-    if (dailyDelta !== 0) {
+    const today = todayCount(friend);
+    if (showToday) {
+      // Today view: the big number is today's count, so the badge carries the total.
+      const totalBadge = document.createElement('span');
+      totalBadge.className = 'delta-badge neutral';
+      totalBadge.textContent = `${formatNumber(friend.totalSolved)} total`;
+      info.appendChild(totalBadge);
+    } else if (today > 0) {
       const deltaBadge = document.createElement('span');
-      deltaBadge.className = `delta-badge ${dailyDelta > 0 ? 'positive' : 'negative'}`;
-      deltaBadge.textContent = dailyDelta > 0 ? `+${dailyDelta} today` : `${dailyDelta} today`;
+      deltaBadge.className = 'delta-badge positive';
+      deltaBadge.textContent = `+${today} today`;
       info.appendChild(deltaBadge);
     }
 
     // Solved count
     const solvedWrap = document.createElement('div');
     solvedWrap.className = 'solved-wrap';
+    if (showToday && today === 0) solvedWrap.classList.add('is-zero');
     const solved = document.createElement('span');
     solved.className = 'solved';
-    solved.textContent = formatNumber(friend.totalSolved);
+    solved.textContent = showToday
+      ? (today > 0 ? `+${today}` : '0')
+      : formatNumber(friend.totalSolved);
     const solvedLabel = document.createElement('span');
     solvedLabel.className = 'solved-label';
-    solvedLabel.textContent = 'solved';
+    solvedLabel.textContent = showToday ? 'today' : 'solved';
     solvedWrap.appendChild(solved);
     solvedWrap.appendChild(solvedLabel);
 
@@ -437,6 +460,12 @@ chrome.storage.local.get(['friends', 'lastUpdated', 'theme', 'myUsername'], (res
   myUsername = result.myUsername || '';
   renderFriends(result.friends || []);
   setLastUpdated(result.lastUpdated || null);
+
+  // Without this the popup only ever shows whatever the hourly alarm last wrote,
+  // so "today" is stale (or from yesterday) every time you open it.
+  if (!result.lastUpdated || Date.now() - result.lastUpdated > STALE_MS) {
+    refreshNow();
+  }
 });
 
 // Show setup dialog if needed
