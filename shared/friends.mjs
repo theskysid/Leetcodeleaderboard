@@ -222,3 +222,21 @@ export function filterFriends(friends, filterBy = FILTER_OPTIONS.ALL) {
   }
   return friends;
 }
+
+// Local (not UTC) calendar day — "today" should roll over at the user's midnight.
+export function localDayString(date = new Date()) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+// Questions solved today, or 0 when the friend's baseline is from an earlier day
+// (i.e. no refresh has happened yet today, so we know nothing about today).
+export function solvedToday(friend, today = localDayString()) {
+  if (!friend || friend.dailyBaselineDate !== today) {
+    return 0;
+  }
+  return typeof friend.dailyDelta === "number" && friend.dailyDelta > 0
+    ? friend.dailyDelta
+    : 0;
+}

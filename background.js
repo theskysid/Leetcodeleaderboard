@@ -1,5 +1,6 @@
 import {
   FRIEND_STATUS,
+  localDayString,
   normalizeUsername,
   sanitizeFriendsList,
 } from "./shared/friends.mjs";
@@ -191,7 +192,7 @@ function applyFetchResult(friend, result, checkedAt) {
     friend.errorMessage = null;
 
     // Daily tracking: reset baseline if date changed
-    const todayStr = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+    const todayStr = localDayString();
     if (friend.dailyBaselineDate !== todayStr) {
       // New day — snapshot current total as baseline
       friend.dailyBaseline = previousTotal !== null ? previousTotal : friend.totalSolved;

@@ -7,8 +7,10 @@ import {
   SORT_OPTIONS,
   filterFriends,
   isValidUsername,
+  localDayString,
   normalizeUsername,
   sanitizeFriendsList,
+  solvedToday,
   sortFriends,
 } from "../shared/friends.mjs";
 
@@ -64,4 +66,16 @@ test("filterFriends returns improved and issue subsets", () => {
 
   assert.deepEqual(improved, ["a"]);
   assert.deepEqual(issues, ["b", "c"]);
+});
+
+test("localDayString uses the local calendar day", () => {
+  assert.equal(localDayString(new Date(2026, 0, 5, 23, 30)), "2026-01-05");
+});
+
+test("solvedToday ignores a baseline from an earlier day", () => {
+  const today = "2026-08-27";
+  assert.equal(solvedToday({ dailyBaselineDate: today, dailyDelta: 3 }, today), 3);
+  assert.equal(solvedToday({ dailyBaselineDate: "2026-08-26", dailyDelta: 3 }, today), 0);
+  assert.equal(solvedToday({ dailyBaselineDate: today, dailyDelta: null }, today), 0);
+  assert.equal(solvedToday({ dailyBaselineDate: today, dailyDelta: -2 }, today), 0);
 });
