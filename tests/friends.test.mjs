@@ -5,6 +5,7 @@ import {
   FILTER_OPTIONS,
   FRIEND_STATUS,
   SORT_OPTIONS,
+  countSolvedToday,
   filterFriends,
   isValidUsername,
   localDayString,
@@ -12,6 +13,7 @@ import {
   sanitizeFriendsList,
   solvedToday,
   sortFriends,
+  startOfLocalDaySeconds,
 } from "../shared/friends.mjs";
 
 test("normalizeUsername lowercases and trims", () => {
@@ -72,10 +74,30 @@ test("localDayString uses the local calendar day", () => {
   assert.equal(localDayString(new Date(2026, 0, 5, 23, 30)), "2026-01-05");
 });
 
-test("solvedToday ignores a baseline from an earlier day", () => {
+test("solvedToday ignores a count observed on an earlier day", () => {
   const today = "2026-08-27";
-  assert.equal(solvedToday({ dailyBaselineDate: today, dailyDelta: 3 }, today), 3);
-  assert.equal(solvedToday({ dailyBaselineDate: "2026-08-26", dailyDelta: 3 }, today), 0);
-  assert.equal(solvedToday({ dailyBaselineDate: today, dailyDelta: null }, today), 0);
-  assert.equal(solvedToday({ dailyBaselineDate: today, dailyDelta: -2 }, today), 0);
+  assert.equal(solvedToday({ todayDate: today, todaySolved: 3 }, today), 3);
+  assert.equal(solvedToday({ todayDate: "2026-08-26", todaySolved: 3 }, today), 0);
+  assert.equal(solvedToday({ todayDate: today, todaySolved: null }, today), 0);
+});
+
+test("countSolvedToday counts distinct problems since local midnight", () => {
+  const midnight = 1000;
+  const submissions = [
+    { titleSlug: "two-sum", timestamp: "1500" },
+    { titleSlug: "two-sum", timestamp: "1400" }, // same problem, retried
+    { titleSlug: "add-two-numbers", timestamp: 1200 },
+    { titleSlug: "yesterday-problem", timestamp: 900 }, // before midnight
+    { titleSlug: "", timestamp: 1600 },
+    { titleSlug: "bad-ts", timestamp: "nope" },
+  ];
+  assert.equal(countSolvedToday(submissions, midnight), 2);
+  assert.equal(countSolvedToday([], midnight), 0);
+  assert.equal(countSolvedToday(null, midnight), 0);
+});
+
+test("startOfLocalDaySeconds is midnight in local time", () => {
+  const noon = new Date(2026, 7, 28, 12, 34, 56);
+  const midnight = new Date(2026, 7, 28, 0, 0, 0, 0);
+  assert.equal(startOfLocalDaySeconds(noon), Math.floor(midnight.getTime() / 1000));
 });

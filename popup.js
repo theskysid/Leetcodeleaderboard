@@ -45,8 +45,8 @@ function showToast(message, type = 'info') {
 }
 
 // ========== Today ==========
-// Guard against a stale baseline: if the last refresh was on an earlier day,
-// friend.dailyDelta still holds yesterday's number, so treat today as 0.
+// Counts come from LeetCode's recent-AC list, stamped with the day they were
+// observed; solvedToday() returns 0 if that stamp isn't today.
 function todayCount(friend) {
   return solvedToday(friend, localDayString());
 }

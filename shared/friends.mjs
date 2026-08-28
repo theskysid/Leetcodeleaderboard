@@ -87,9 +87,8 @@ export function normalizeFriendRecord(rawFriend) {
     totalSolved,
     previousTotalSolved,
     delta,
-    dailyBaseline: asNumberOrNull(source.dailyBaseline),
-    dailyBaselineDate: typeof source.dailyBaselineDate === "string" ? source.dailyBaselineDate : null,
-    dailyDelta: asNumberOrNull(source.dailyDelta),
+    todaySolved: asNumberOrNull(source.todaySolved),
+    todayDate: typeof source.todayDate === "string" ? source.todayDate : null,
     avatar: typeof source.avatar === "string" && source.avatar.trim() ? source.avatar : null,
     status: normalizeStatus(source.status),
     errorMessage:
@@ -111,9 +110,8 @@ export function createNewFriendRecord(username) {
     totalSolved: null,
     previousTotalSolved: null,
     delta: null,
-    dailyBaseline: null,
-    dailyBaselineDate: null,
-    dailyDelta: null,
+    todaySolved: null,
+    todayDate: null,
     avatar: null,
     status: FRIEND_STATUS.IDLE,
     errorMessage: null,
@@ -230,13 +228,40 @@ export function localDayString(date = new Date()) {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-// Questions solved today, or 0 when the friend's baseline is from an earlier day
-// (i.e. no refresh has happened yet today, so we know nothing about today).
-export function solvedToday(friend, today = localDayString()) {
-  if (!friend || friend.dailyBaselineDate !== today) {
+export function startOfLocalDaySeconds(date = new Date()) {
+  const midnight = new Date(date);
+  midnight.setHours(0, 0, 0, 0);
+  return Math.floor(midnight.getTime() / 1000);
+}
+
+// Distinct problems accepted since local midnight, straight from LeetCode's
+// recent-AC list. Counting real submissions (rather than diffing totals between
+// polls) is the only way this survives the browser being closed overnight.
+// ponytail: bounded by the recent-AC page size we request; someone solving more
+// than that in one day undercounts. Raise the limit if that ever comes up.
+export function countSolvedToday(recentAcSubmissions, sinceEpochSeconds) {
+  if (!Array.isArray(recentAcSubmissions)) {
     return 0;
   }
-  return typeof friend.dailyDelta === "number" && friend.dailyDelta > 0
-    ? friend.dailyDelta
+  const slugs = new Set();
+  for (const submission of recentAcSubmissions) {
+    const timestamp = Number(submission?.timestamp);
+    if (!Number.isFinite(timestamp) || timestamp < sinceEpochSeconds) {
+      continue;
+    }
+    if (typeof submission?.titleSlug === "string" && submission.titleSlug) {
+      slugs.add(submission.titleSlug);
+    }
+  }
+  return slugs.size;
+}
+
+// 0 unless the stored count was actually observed today.
+export function solvedToday(friend, today = localDayString()) {
+  if (!friend || friend.todayDate !== today) {
+    return 0;
+  }
+  return typeof friend.todaySolved === "number" && friend.todaySolved > 0
+    ? friend.todaySolved
     : 0;
 }

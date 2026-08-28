@@ -1,8 +1,10 @@
 import {
   FRIEND_STATUS,
+  countSolvedToday,
   localDayString,
   normalizeUsername,
   sanitizeFriendsList,
+  startOfLocalDaySeconds,
 } from "./shared/friends.mjs";
 
 const API_URL = "https://leetcode.com/graphql";
@@ -10,6 +12,7 @@ const UPDATE_ALARM_NAME = "updateLeetCode";
 const UPDATE_INTERVAL_MINUTES = 60;
 const FETCH_CONCURRENCY = 4;
 const FETCH_TIMEOUT_MS = 12000;
+const RECENT_AC_LIMIT = 50;
 
 let activeUpdatePromise = null;
 let queuedUpdateOptions = null;
@@ -60,7 +63,7 @@ function mergeUpdateOptions(existing, incoming) {
 
 async function fetchSolved(username) {
   const query = `
-    query getUserProfile($username: String!) {
+    query getUserProfile($username: String!, $limit: Int!) {
       matchedUser(username: $username) {
         submitStatsGlobal {
           acSubmissionNum {
@@ -71,6 +74,10 @@ async function fetchSolved(username) {
         profile {
           userAvatar
         }
+      }
+      recentAcSubmissionList(username: $username, limit: $limit) {
+        titleSlug
+        timestamp
       }
     }`;
 
@@ -85,7 +92,10 @@ async function fetchSolved(username) {
         Referer: "https://leetcode.com/",
         Accept: "application/json",
       },
-      body: JSON.stringify({ query, variables: { username } }),
+      body: JSON.stringify({
+        query,
+        variables: { username, limit: RECENT_AC_LIMIT },
+      }),
       signal: controller.signal,
     });
 
@@ -94,6 +104,7 @@ async function fetchSolved(username) {
         status: FRIEND_STATUS.ERROR,
         total: null,
         avatar: null,
+        todaySolved: null,
         errorMessage: `HTTP ${res.status}`,
       };
     }
@@ -104,6 +115,7 @@ async function fetchSolved(username) {
         status: FRIEND_STATUS.ERROR,
         total: null,
         avatar: null,
+        todaySolved: null,
         errorMessage: "GraphQL error",
       };
     }
@@ -114,6 +126,7 @@ async function fetchSolved(username) {
         status: FRIEND_STATUS.NOT_FOUND,
         total: null,
         avatar: null,
+        todaySolved: null,
         errorMessage: "User not found",
       };
     }
@@ -132,6 +145,10 @@ async function fetchSolved(username) {
       status: FRIEND_STATUS.OK,
       total,
       avatar,
+      todaySolved: countSolvedToday(
+        data?.data?.recentAcSubmissionList,
+        startOfLocalDaySeconds(),
+      ),
       errorMessage: null,
     };
   } catch (error) {
@@ -140,6 +157,7 @@ async function fetchSolved(username) {
       status: FRIEND_STATUS.ERROR,
       total: null,
       avatar: null,
+      todaySolved: null,
       errorMessage: isTimeout ? "Request timed out" : "Network error",
     };
   } finally {
@@ -191,19 +209,9 @@ function applyFetchResult(friend, result, checkedAt) {
     friend.lastSuccessAt = checkedAt;
     friend.errorMessage = null;
 
-    // Daily tracking: reset baseline if date changed
-    const todayStr = localDayString();
-    if (friend.dailyBaselineDate !== todayStr) {
-      // New day — snapshot current total as baseline
-      friend.dailyBaseline = previousTotal !== null ? previousTotal : friend.totalSolved;
-      friend.dailyBaselineDate = todayStr;
-    }
-    // Calculate daily delta
-    if (typeof friend.totalSolved === "number" && typeof friend.dailyBaseline === "number") {
-      friend.dailyDelta = friend.totalSolved - friend.dailyBaseline;
-    } else {
-      friend.dailyDelta = null;
-    }
+    friend.todaySolved =
+      typeof result.todaySolved === "number" ? result.todaySolved : 0;
+    friend.todayDate = localDayString();
 
     return;
   }
@@ -212,7 +220,7 @@ function applyFetchResult(friend, result, checkedAt) {
     friend.previousTotalSolved = previousTotal;
     friend.totalSolved = null;
     friend.delta = null;
-    friend.dailyDelta = null;
+    friend.todaySolved = null;
     return;
   }
 
